@@ -9,11 +9,11 @@
 (define BLACK 2)
 (define BLANK 0)
 (define ROWS 9)  ;; can vary
-(define COLUMNS 8) ;; can vary
-;; Heuristic Values
+s;; Heuristic Values
 (define ALLY-SCORE 2)
 (define BLANK-SCORE 2)
 (define ENEMY-SCORE 0)
+(define MINIMAX-DEPTH 3)
 ;; Board is defined as as list of columns
 ;; each column is ROW units high
 ;; the list is COLUMN units big.
@@ -25,7 +25,7 @@
 
 ;; retrieves the value at the given coordinate
 ;; works just like piece at, but uses coor struct, bucause triple embedded lists are gross
-(define (get-checker c state) 
+(define (get-checker c state)
   (get-nth (coor-y c) (get-nth (coor-x c) (world-state-position state))))
 
 ;; returns all valid coordinate neighboors of a given coordinate
@@ -51,7 +51,6 @@
                   [(>= (coor-y c) ROWS) false]
                   [else true]))]
              (filter valid? (coor-list lst lst)))) ;; returns the final list, all coordinates that border the given coordinate and are valid on the board. Between 9 and 4 coordinates should be returned
-
 
 
 ;; state --> Number.  
@@ -90,9 +89,42 @@
 
 ;; state --> state
 ;; you will implement this function to make a move
-(define (computer-moves state)
+#;(define (computer-moves state)
   (local [(define moves (legal-next-moves state))]
     (make-move state (get-nth (random (length moves)) moves))))
+
+(define (computer-moves state)
+  (local[
+         (define moves (legal-next-moves state))
+         ;; move -> move
+         ;; if depth = 0, returns the given move
+         ;; otherwise, makes a new board with given move and evaluates the board and returns the best possible move to make it the new situation
+         (define (fnmove move state depth max?)
+           (if (= 0 depth)
+               move
+               (local [(define new-state (make-move state move))]
+                 (fnlom (legal-next-moves new-state) new-state depth max?))))
+         
+         ;; listOfMove -> move
+         ;; returns best option of the list
+         (define (fnlom lom state depth max?)
+           (cond
+             [(empty? (rest lom)) (first lom)] ;; this saves computing time, the base case is a size one list. Since i have nothing valuable to return for an empty list
+             [(empty? lom) (first (legal-next-moves state))] ;; to make sure things don't break, i have included this, but it is not necesary
+             [else 
+              (local
+                [(define rbest (fnlom (rest lom) state depth max?))
+                    (define result  
+                   (cond
+                     [(or (and max? (> (eval-move (first lom) state) (eval-move rbest state)))
+                          (and (not max?) (< (eval-move (first lom) state) (eval-move rbest state))))
+                      (first lom)]
+                     [else rbest]))]
+                (fnmove result (make-move state result) (sub1 depth) (not max?)))]))
+         
+         (define (eval-move move state)
+           (evaluation-function (make-move state move)))]
+    (make-move state (fnlom moves state MINIMAX-DEPTH false))))
 
 ;; you must implement the above two functions as part of the asignment, but may create additional
 ;; helper functions
@@ -213,7 +245,8 @@
     
     (big-bang state 
               (on-mouse place-checker) 
-              (to-draw render))))
+              (to-draw render)
+              (stop-when string?))))
 
 ;; *** this function permits you to make both legal and illegal moves
 ;; *** you do not need to use this function and probably should not.  someone thought of a reason
@@ -251,9 +284,9 @@
          (world-state-other-info state))))
 
 ;; you will use this function.  it takes as input the move you will make, represented as a list of X Y coordinates
-(define (make-move state move)
-   (if (member move (legal-next-moves state))
-       (make-hypothetical-move state move)
+(define (make-move state move) 
+  (if (member move (legal-next-moves state))
+    (make-hypothetical-move state move)
        state))
 
 ;; world-state --> list
@@ -351,6 +384,23 @@
              (make-list ROWS BLANK)))
 (define start-state
   (make-world-state START-BOARD RED 5 empty))
+
+(define test-state
+  (make-world-state
+   (list
+    (list 0 0 0 0 0 0 0 0 0)
+    (list 0 0 0 0 0 0 0 0 0)
+    (list 0 0 0 0 0 0 0 0 0)
+    (list 0 0 0 0 0 0 0 1 2)
+    (list 0 0 0 0 0 0 0 2 1)
+    (list 0 0 0 0 0 0 0 0 0)
+    (list 0 0 0 0 0 0 0 0 0)
+    (list 0 0 0 0 0 0 0 0 0))
+   RED
+   5 empty))
+    
+
+
 
 
 
