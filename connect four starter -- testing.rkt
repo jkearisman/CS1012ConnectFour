@@ -28,7 +28,7 @@
 
 ;; coor world-state -> number
 ;; retrieves the value at the given coordinate
-;; works just like piece at, but uses coor struct, bucause triple embedded lists are gross
+;; works just like piece at, but uses coor struct, because it simplifies much of the code, esp. functions that take a list of coor
 (check-expect (get-checker (make-coor 5 5) start-state) 0)
 (check-expect (get-checker (make-coor 4 7) test-state) 2)
 (check-expect (get-checker (make-coor 7 8) test-state) 0)
@@ -45,13 +45,13 @@
 (check-expect (valid? (make-coor 0 -1)) false)
 (check-expect (valid? (make-coor COLUMNS 0)) false)
 (check-expect (valid? (make-coor 0 ROWS)) false)
-(check-expect (valid? (make-coor 0 0)) true)
+(check-expect (valid? (make-coor 7 8)) true)
 (define (valid? c)
   (cond 
     [(< (coor-x c) 0) false]
     [(< (coor-y c) 0) false]
-    [(>= (coor-x c) COLUMNS) false]
-    [(>= (coor-y c) ROWS) false]
+    [(= (coor-x c) COLUMNS) false]
+    [(= (coor-y c) ROWS) false]
     [else true]))
 
 ;; state --> Number.  
@@ -59,10 +59,12 @@
 ;; while smaller values are better for black (computer)
 
 (check-expect (evaluation-function start-state) 0)
-(check-expect (evaluation-function test-state) 0)
+(check-expect (evaluation-function test-state) 6)
 (define (evaluation-function state)
   (local[
          (define (eval-coor c)  ;; coor -> number
+           (if (not (valid? c))
+               (error "c is not valid")
                (local [
                        (define (eval-direction c2 x y maximum) ;; evaluates the score looking in a c. Boolean argument is whether the end is an empty space or not. Empty spaces are worth more
                          (if (valid? c2)
@@ -72,19 +74,24 @@
                                (cond
                                  [(= other-checker BLANK) (list maximum true)]
                                  [(= this-checker other-checker)
-                                  (eval-direction c (next-coor c2 x y) x y (add1 maximum))]
+                                  (eval-direction (next-coor c2 x y) x y (add1 maximum))]
                                  [else (list maximum false)]))
                              (list maximum false)))
                        (define (next-coor c1 x y)
                          (make-coor (+ (coor-x c1) x) (+ (coor-y c1) y)))
                        (define (eval-dir-helper x y) 
                          (local[
-                                (define one-dir (eval-direction (next-coor c x y) x y 1))
-                                (define other-dir  (eval-direction (next-coor c (- x) (- y)) (- x) (- y) 1))]
-                           (score (+ (first one-dir) (first other-dir)) (second one-dir) (second other-dir))))
+                                (define one-dir (eval-direction (next-coor c x y) x y 0))
+                                (define other-dir  (eval-direction (next-coor c (- x) (- y)) (- x) (- y) 0))]
+                           (score (+ (first one-dir) (first other-dir) 1) (second one-dir) (second other-dir))))
+                       
                        (define (dir-to-xy dir)
-                         (local [(define angle (* dir pi .25))]
-                           (eval-dir-helper (cos angle) (sin angle))))
+                         (cond
+                           [(= 0 dir) (eval-dir-helper 1 0)]
+                           [(= 1 dir) (eval-dir-helper 1 1)]
+                           [(= 2 dir) (eval-dir-helper 0 1)]
+                           [(= 3 dir) (eval-dir-helper -1 1)]))
+                       
                        (define (score maximum one-side-empty? other-side-empty?)
                          (cond 
                            [(= maximum 4) 999999999]
@@ -92,7 +99,7 @@
                            [(or one-side-empty? other-side-empty?) maximum]
                            [else 0]))]
                  (if (= (get-checker c state) BLANK) 0
-                     (* (foldr + 0 (map dir-to-xy (list 0 1 2 3))) (if (= (get-checker c) RED) 1 -1)))))
+                     (* (foldr + 0 (map dir-to-xy (list 0 1 2 3))) (if (= (get-checker c state) RED) 1 -1))))))
          (define (get-all-coor x y)
            (cond
              [(= y ROWS) empty]
@@ -403,14 +410,13 @@
     (list 0 0 0 0 0 0 0 0 0)  ;; etc
     (list 0 0 0 0 0 0 0 1 2)
     (list 0 0 0 0 0 0 0 2 1)
-    (list 0 0 0 0 0 0 0 0 0)
+    (list 0 0 0 0 0 0 0 0 1)
     (list 0 0 0 0 0 0 0 0 0)
     (list 0 0 0 0 0 0 0 0 0))
    RED
    5 empty))
 
-;(evaluation-function start-state)
-
+(main start-state)
 
 
 
