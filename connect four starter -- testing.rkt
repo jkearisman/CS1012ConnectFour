@@ -16,7 +16,7 @@
 (define ALLY-SCORE 2)
 (define BLANK-SCORE 2)
 (define ENEMY-SCORE 0)
-(define MINIMAX-DEPTH 2)
+(define MINIMAX-DEPTH 3)
 ;; Board is defined as as list of columns
 ;; each column is ROW units high
 ;; the list is COLUMN units big.
@@ -34,9 +34,7 @@
 (check-expect (get-checker (make-coor 4 8) test-state) 1)
 
 (define (get-checker c state)
-  (if (list? state)
-      c
-      (get-nth (coor-y c) (get-nth (coor-x c) (world-state-position state)))))
+  (get-nth (coor-y c) (get-nth (coor-x c) (world-state-position state))))
 
 ;; coor -> Boolean
 ;; checks to see if the given coordinate is valid for our board
@@ -58,7 +56,20 @@
 ;; evaluates how good a state is.  larger values are better for red (human) 
 ;; while smaller values are better for black (computer)
 (check-expect (evaluation-function start-state) 0)
-(check-expect (evaluation-function test-state) 6)
+(check-expect (evaluation-function test-state) 5)
+(check-expect (evaluation-function (make-world-state
+                                    (list
+                                     (list 0 0 0 0 0 0 0 0 0)
+                                     (list 0 0 0 0 0 0 0 0 0)
+                                     (list 0 0 0 0 0 0 0 0 1)
+                                     (list 0 0 0 0 0 0 0 0 1)
+                                     (list 0 0 0 0 0 0 0 0 1)
+                                     (list 0 0 0 0 0 0 0 0 1)
+                                     (list 0 0 0 0 0 0 0 0 0)
+                                     (list 0 0 0 0 0 0 0 0 0))
+                                    RED
+                                    5
+                                    empty)) (+ (* 4 999999) (* 12 1)))
 
 (define (evaluation-function state)
   (local
@@ -104,7 +115,6 @@
           ;; The two booleans reflect if the endpoints of the line are empty spaces (true) or unavailable (false)
           (define (score maximum one-side-empty? other-side-empty?)
             (cond 
-              [(>= maximum 4) 999999]
               [(and one-side-empty? other-side-empty?) (* 2 maximum)]
               [(or one-side-empty? other-side-empty?) maximum]
               [else 0]))]
@@ -123,18 +133,59 @@
 
 ;; state --> state
 ;; you will implement this function to make a move
+(check-expect (computer-moves test-state)  ;; tests to see if the computer will block a red victory
+              (make-world-state
+               (list
+                (list 0 0 0 0 0 0 0 0 0) 
+                (list 0 0 0 0 0 0 0 0 0) 
+                (list 0 0 0 0 0 0 0 0 0) 
+                (list 0 0 0 0 0 0 2 1 2)
+                (list 0 0 0 0 0 0 0 2 1)
+                (list 0 0 0 0 0 0 0 0 1)
+                (list 0 0 0 0 0 0 0 0 1)
+                (list 0 0 0 0 0 0 0 0 2))
+               RED
+               5 empty))
+
+(check-expect (computer-moves  ;; tests to see if the computer will take a victory over blocking red.
+               (make-world-state
+                (list
+                 (list 0 0 0 0 0 0 0 0 2)
+                 (list 0 0 0 0 0 0 0 0 2)
+                 (list 0 0 0 0 0 0 0 0 2) 
+                 (list 0 0 0 0 0 0 0 0 0)  ; <- this is the winning move
+                 (list 0 0 0 0 0 0 0 0 0)  ; <- this is the blocking move
+                 (list 0 0 0 0 0 0 0 0 1)
+                 (list 0 0 0 0 0 0 0 0 1)
+                 (list 0 0 0 0 0 0 0 1 1))
+                BLACK
+                5 empty))
+              (make-world-state
+               (list
+                (list 0 0 0 0 0 0 0 0 2)
+                (list 0 0 0 0 0 0 0 0 2)
+                (list 0 0 0 0 0 0 0 0 2) 
+                (list 0 0 0 0 0 0 0 0 2)
+                (list 0 0 0 0 0 0 0 0 0)
+                (list 0 0 0 0 0 0 0 0 1)
+                (list 0 0 0 0 0 0 0 0 1)
+                (list 0 0 0 0 0 0 0 1 1))
+               RED
+               5 empty)) 
+
+
+
 (define (computer-moves state)
   (make-move state (find-best (legal-next-moves state) MINIMAX-DEPTH false state)))
 
 (define (eval-move move depth max? state)      ;; move -> score
   (local
     [(define next-state (make-move state move))]
-    (if (= 0 depth)
-        (evaluation-function next-state)
-        (local
-          [(define best-next-move (find-best (legal-next-moves next-state) (sub1 depth) (not max?) next-state))]
-          (evaluation-function (make-move next-state best-next-move))))))
-     
+    (if (or (= 0 depth) (check-win? next-state))  ; if we have reached the depth, it returns the value at the bottom of the tree
+        (evaluation-function next-state)          ; if the last move ended the game, we don't need to look farther, because the game ends
+        (evaluation-function (make-move next-state (find-best (legal-next-moves next-state) (sub1 depth) (not max?) next-state)))))) 
+        ; if we aren't there yet, evaluate the result of the find-best function
+
 ;; lom -> move
 ;; takes the best move of the list
 (define (find-best lom depth max? state)
@@ -184,7 +235,7 @@
               [(= n current)(first alist)]
               [else
                (nth-helper n (+ 1 current) (rest alist))]))]
-        (nth-helper n 0 alist)))
+    (nth-helper n 0 alist)))
 
 (define (main state)
   (local 
@@ -255,8 +306,11 @@
      
      (define (display-board position)
        (display-board-helper position OFFSET MTS))
+     
      (define (render state)
-       (display-board (world-state-position state)))
+       (if (string? state)
+           (text state 40 'black)
+           (display-board (world-state-position state))))
      
      (define (map-coordinate lower upper click pos)
        (cond
@@ -270,9 +324,9 @@
              (map-coordinate (/ PIECE-SIZE 2) (+  (/ PIECE-SIZE 2) (* 2 PIECE-SIZE)) y 0)))]
     
     (big-bang state 
-              (on-mouse place-checker) 
+              (on-mouse place-checker)
+              (stop-when string?)
               (to-draw render))))
-;(to-draw debug))))
 
 ;; *** this function permits you to make both legal and illegal moves
 ;; *** you do not need to use this function and probably should not.  someone thought of a reason
@@ -417,16 +471,13 @@
     (list 0 0 0 0 0 0 0 0 0)  ;; column 0
     (list 0 0 0 0 0 0 0 0 0)  ;; column 1
     (list 0 0 0 0 0 0 0 0 0)  ;; etc
-    (list 0 0 0 0 0 0 0 1 2)
+    (list 0 0 0 0 0 0 2 1 2)
     (list 0 0 0 0 0 0 0 2 1)
     (list 0 0 0 0 0 0 0 0 1)
-    (list 0 0 0 0 0 0 0 0 0)
+    (list 0 0 0 0 0 0 0 0 1)
     (list 0 0 0 0 0 0 0 0 0))
    BLACK
    5 empty))
-
-
-(time (computer-moves test-state))
 
 
 
