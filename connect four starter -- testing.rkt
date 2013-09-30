@@ -16,7 +16,7 @@
 (define ALLY-SCORE 2)
 (define BLANK-SCORE 2)
 (define ENEMY-SCORE 0)
-(define MINIMAX-DEPTH 3)
+(define MINIMAX-DEPTH 2)
 ;; Board is defined as as list of columns
 ;; each column is ROW units high
 ;; the list is COLUMN units big.
@@ -31,12 +31,12 @@
 ;; works just like piece at, but uses coor struct, because it simplifies much of the code, esp. functions that take a list of coor
 (check-expect (get-checker (make-coor 5 5) start-state) 0)
 (check-expect (get-checker (make-coor 4 7) test-state) 2)
-(check-expect (get-checker (make-coor 7 8) test-state) 0)
+(check-expect (get-checker (make-coor 4 8) test-state) 1)
 
 (define (get-checker c state)
-  (if (valid? c)
-      (get-nth (coor-y c) (get-nth (coor-x c) (world-state-position state)))
-      (error "non-valid passed to get-checker function")))
+  (if (list? state)
+      c
+      (get-nth (coor-y c) (get-nth (coor-x c) (world-state-position state)))))
 
 ;; coor -> Boolean
 ;; checks to see if the given coordinate is valid for our board
@@ -57,91 +57,100 @@
 ;; state --> Number.  
 ;; evaluates how good a state is.  larger values are better for red (human) 
 ;; while smaller values are better for black (computer)
-
 (check-expect (evaluation-function start-state) 0)
 (check-expect (evaluation-function test-state) 6)
+
 (define (evaluation-function state)
-  (local[
-         (define (eval-coor c)  ;; coor -> number
-           (if (not (valid? c))
-               (error "c is not valid")
-               (local [
-                       (define (eval-direction c2 x y maximum) ;; evaluates the score looking in a c. Boolean argument is whether the end is an empty space or not. Empty spaces are worth more
-                         (if (valid? c2)
-                             (local[
-                                    (define this-checker (get-checker c state))
-                                    (define other-checker (get-checker c2 state))]
-                               (cond
-                                 [(= other-checker BLANK) (list maximum true)]
-                                 [(= this-checker other-checker)
-                                  (eval-direction (next-coor c2 x y) x y (add1 maximum))]
-                                 [else (list maximum false)]))
-                             (list maximum false)))
-                       (define (next-coor c1 x y)
-                         (make-coor (+ (coor-x c1) x) (+ (coor-y c1) y)))
-                       (define (eval-dir-helper x y) 
-                         (local[
-                                (define one-dir (eval-direction (next-coor c x y) x y 0))
-                                (define other-dir  (eval-direction (next-coor c (- x) (- y)) (- x) (- y) 0))]
-                           (score (+ (first one-dir) (first other-dir) 1) (second one-dir) (second other-dir))))
-                       
-                       (define (dir-to-xy dir)
-                         (cond
-                           [(= 0 dir) (eval-dir-helper 1 0)]
-                           [(= 1 dir) (eval-dir-helper 1 1)]
-                           [(= 2 dir) (eval-dir-helper 0 1)]
-                           [(= 3 dir) (eval-dir-helper -1 1)]))
-                       
-                       (define (score maximum one-side-empty? other-side-empty?)
-                         (cond 
-                           [(= maximum 4) 999999999]
-                           [(and one-side-empty? other-side-empty?) (* 2 maximum)]
-                           [(or one-side-empty? other-side-empty?) maximum]
-                           [else 0]))]
-                 (if (= (get-checker c state) BLANK) 0
-                     (* (foldr + 0 (map dir-to-xy (list 0 1 2 3))) (if (= (get-checker c state) RED) 1 -1))))))
-         (define (get-all-coor x y)
-           (cond
-             [(= y ROWS) empty]
-             [(= x COLUMNS) (get-all-coor 0 (add1 y))]
-             [else (cons (make-coor x y) (get-all-coor (add1 x) y))]))]
+  (local
+    [(define (eval-coor c)  ;; coor -> number
+       (local
+         [(define checker (get-checker c state))
+          (define (eval-direction c2 x y maximum) ;; evaluates the score of this coordinate, reletive to the focal coordinate
+            (if (not (valid? c2))
+                (list maximum false)
+                (local
+                  [(define other-checker (get-checker c2 state))]
+                  (cond
+                    ; I didn't want to make a new structure, so i committed original sin and made a multi-type list.
+                    ; May god have mercy on my soul
+                    ; the first element of the list is number of checkers in a row, the second is a boolean that is true if the first non-ally square is empty
+                    [(= other-checker BLANK) (list maximum true)]
+                    [(= checker other-checker)
+                     (eval-direction (next-coor c2 x y) x y (add1 maximum))]
+                    [else (list maximum false)]))))
+          
+          ;; makes a new coor by incrementing the given coordinate by the given x and y values
+          (define (next-coor c1 x y)
+            (make-coor (+ (coor-x c1) x) (+ (coor-y c1) y)))
+          
+          ;; changes one direction two directions, on either side of the checker, moves up the ladder
+          (define (eval-dir-helper x y) 
+            (local
+              [(define one-dir (eval-direction (next-coor c x y) x y 0))
+               (define other-dir  (eval-direction (next-coor c (- x) (- y)) (- x) (- y) 0))]
+              (score (+ (first one-dir) (first other-dir) 1) (second one-dir) (second other-dir))))
+          
+          ;; helper function, changes a direcion [0,3] to x and y values [-1,1]
+          ;; then moves up the ladder of functions on the way to evaluating a coordinate
+          (define (dir-to-xy dir)
+            (cond
+              [(= 0 dir) (eval-dir-helper 1 0)]
+              [(= 1 dir) (eval-dir-helper 1 1)]
+              [(= 2 dir) (eval-dir-helper 0 1)]
+              [(= 3 dir) (eval-dir-helper -1 1)]))
+          
+          ;; scores the line of checkers that extends on both sides of the focal checker
+          ;; maximum is the number of checkers in that row.
+          ;; The two booleans reflect if the endpoints of the line are empty spaces (true) or unavailable (false)
+          (define (score maximum one-side-empty? other-side-empty?)
+            (cond 
+              [(>= maximum 4) 999999]
+              [(and one-side-empty? other-side-empty?) (* 2 maximum)]
+              [(or one-side-empty? other-side-empty?) maximum]
+              [else 0]))]
+         
+         (if (= checker BLANK) 0
+             (* (foldr + 0 (map dir-to-xy (list 0 1 2 3))) (if (= checker RED) 1 -1)))))
+     
+     ;; generates a list of all valid coordinates on the board
+     (define (get-all-coor x y)
+       (cond
+         [(= y ROWS) empty]
+         [(= x COLUMNS) (get-all-coor 0 (add1 y))]
+         [else (cons (make-coor x y) (get-all-coor (add1 x) y))]))]
     (foldr + 0 (map eval-coor (get-all-coor 0 0)))))
 
 
 ;; state --> state
 ;; you will implement this function to make a move
 (define (computer-moves state)
-  (local[
-         (define moves (legal-next-moves state))
-         ;; move -> move
-         ;; if depth = 0, returns the given move
-         ;; otherwise, makes a new board with given move and evaluates the board and returns the best possible move to make it the new situation
-         (define (fnmove move state depth max?)
-           (if (= 0 depth)
-               move
-               (local [(define new-state (make-move state move))]
-                 (fnlom (legal-next-moves new-state) new-state depth max?))))
-         
-         ;; listOfMove -> move
-         ;; returns best option of the list
-         (define (fnlom lom state depth max?)
-           (cond
-             [(empty? (rest lom)) (first lom)] ;; this saves computing time, the base case is a size one list. Since i have nothing valuable to return for an empty list
-             [(empty? lom) (first (legal-next-moves state))] ;; to make sure things don't break, i have included this, but it is not necesary
-             [else 
-              (local
-                [(define rbest (fnlom (rest lom) state depth max?))
-                 (define result  
-                   (cond
-                     [(or (and max? (> (eval-move (first lom) state) (eval-move rbest state)))
-                          (and (not max?) (< (eval-move (first lom) state) (eval-move rbest state))))
-                      (first lom)]
-                     [else rbest]))]
-                (fnmove result (make-move state result) (sub1 depth) (not max?)))]))
-         
-         (define (eval-move move state)
-           (evaluation-function (make-move state move)))]
-    (make-move state (fnlom moves state MINIMAX-DEPTH false))))
+  (make-move state (find-best (legal-next-moves state) MINIMAX-DEPTH false state)))
+
+(define (eval-move move depth max? state)      ;; move -> score
+  (local
+    [(define next-state (make-move state move))]
+    (if (= 0 depth)
+        (evaluation-function next-state)
+        (local
+          [(define best-next-move (find-best (legal-next-moves next-state) (sub1 depth) (not max?) next-state))]
+          (evaluation-function (make-move next-state best-next-move))))))
+     
+;; lom -> move
+;; takes the best move of the list
+(define (find-best lom depth max? state)
+  (cond
+    [(empty? (rest lom)) (first lom)]
+    [else
+     (local
+       [(define this-move-score (eval-move (first lom) depth max? state))
+        (define rbest (find-best (rest lom) depth max? state))
+        (define rbest-score (eval-move rbest depth max? state))]
+       (cond
+         [(and max? (> this-move-score rbest-score)) (first lom)]
+         [(and (not max?) (< this-move-score rbest-score)) (first lom)]
+         [else rbest]))]))
+
+
 
 ;; you must implement the above two functions as part of the asignment, but may create additional
 ;; helper functions
@@ -175,7 +184,7 @@
               [(= n current)(first alist)]
               [else
                (nth-helper n (+ 1 current) (rest alist))]))]
-    (nth-helper n 0 alist)))
+        (nth-helper n 0 alist)))
 
 (define (main state)
   (local 
@@ -262,8 +271,8 @@
     
     (big-bang state 
               (on-mouse place-checker) 
-              (to-draw render)
-              (stop-when string?))))
+              (to-draw render))))
+;(to-draw debug))))
 
 ;; *** this function permits you to make both legal and illegal moves
 ;; *** you do not need to use this function and probably should not.  someone thought of a reason
@@ -413,11 +422,11 @@
     (list 0 0 0 0 0 0 0 0 1)
     (list 0 0 0 0 0 0 0 0 0)
     (list 0 0 0 0 0 0 0 0 0))
-   RED
+   BLACK
    5 empty))
 
-(main start-state)
 
+(time (computer-moves test-state))
 
 
 
