@@ -1,6 +1,6 @@
 ;; The first three lines of this file were inserted by DrRacket. They record metadata
 ;; about the language level of this file in a form that our tools can easily process.
-#reader(lib "htdp-intermediate-reader.ss" "lang")((modname |connect four starter -- testing|) (read-case-sensitive #t) (teachpacks ((lib "universe.rkt" "teachpack" "2htdp"))) (htdp-settings #(#t constructor repeating-decimal #f #t none #f ((lib "universe.rkt" "teachpack" "2htdp")))))
+#reader(lib "htdp-intermediate-reader.ss" "lang")((modname connect_four) (read-case-sensitive #t) (teachpacks ((lib "universe.rkt" "teachpack" "2htdp"))) (htdp-settings #(#t constructor repeating-decimal #f #t none #f ((lib "universe.rkt" "teachpack" "2htdp")))))
 ;; Jesse Earisman & Zachary Robbins
 
 (require 2htdp/image)
@@ -10,16 +10,8 @@
 (define RED 1) 
 (define BLACK 2)
 (define BLANK 0)
-(define ROWS 9)  ;; can vary
-(define COLUMNS 8) ;; can vary
-;; Heuristic Values
-(define ALLY-SCORE 2)
-(define BLANK-SCORE 2)
-(define ENEMY-SCORE 0)
-(define MINIMAX-DEPTH 3)
-;; Board is defined as as list of columns
-;; each column is ROW units high
-;; the list is COLUMN units big.
+(define ROWS 6)  ;; can vary
+(define COLUMNS 7) ;; can vary
 
 ;; a coordinate structure, makes things easier, probably
 ;; x is column position and should not exceed COLUMNS
@@ -29,10 +21,8 @@
 ;; coor world-state -> number
 ;; retrieves the value at the given coordinate
 ;; works just like piece at, but uses coor struct, because it simplifies much of the code, esp. functions that take a list of coor
-(check-expect (get-checker (make-coor 5 5) start-state) 0)
-(check-expect (get-checker (make-coor 4 7) test-state) 2)
-(check-expect (get-checker (make-coor 4 8) test-state) 1)
-
+(check-expect (get-checker (make-coor 0 0) start-state) 0)
+(check-expect (get-checker (make-coor 3 5) test-state) 1)
 (define (get-checker c state)
   (get-nth (coor-y c) (get-nth (coor-x c) (world-state-position state))))
 
@@ -43,37 +33,41 @@
 (check-expect (valid? (make-coor 0 -1)) false)
 (check-expect (valid? (make-coor COLUMNS 0)) false)
 (check-expect (valid? (make-coor 0 ROWS)) false)
-(check-expect (valid? (make-coor 7 8)) true)
+(check-expect (valid? (make-coor (- COLUMNS 1) (- ROWS 1))) true)
+(check-expect (valid? (make-coor 0 0)) true)
 (define (valid? c)
   (cond 
     [(< (coor-x c) 0) false]
     [(< (coor-y c) 0) false]
-    [(= (coor-x c) COLUMNS) false]
-    [(= (coor-y c) ROWS) false]
+    [(>= (coor-x c) COLUMNS) false]
+    [(>= (coor-y c) ROWS) false]
     [else true]))
 
+
+(define HOW-AGGRESIVE 1)  ;; heuristic valies, would be placed in the local for evaluation-function, but otherwise check-expects fail
+(define HOW-DEFENSIVE 1.5)
 ;; state --> Number.  
 ;; evaluates how good a state is.  larger values are better for red (human) 
 ;; while smaller values are better for black (computer)
-(check-expect (evaluation-function start-state) 0)
-(check-expect (evaluation-function test-state) 5)
-(check-expect (evaluation-function (make-world-state
-                                    (list
-                                     (list 0 0 0 0 0 0 0 0 0)
-                                     (list 0 0 0 0 0 0 0 0 0)
-                                     (list 0 0 0 0 0 0 0 0 1)
-                                     (list 0 0 0 0 0 0 0 0 1)
-                                     (list 0 0 0 0 0 0 0 0 1)
-                                     (list 0 0 0 0 0 0 0 0 1)
-                                     (list 0 0 0 0 0 0 0 0 0)
-                                     (list 0 0 0 0 0 0 0 0 0))
-                                    RED
-                                    5
-                                    empty)) (+ (* 4 999999) (* 12 1)))
+;; systematically evaluates all coors on the board, for each, if the checker at that coor is non-blank,
+;; looks in all directions around the coor. This determines how many checkers are in a line for vertical,
+;; horizontal, and diagonal stacks. It also sees whether the next space after the checker line is empty
+;; or not. A line bounded by two emptys is worth a lot. A line bounded by two enemy pieces or the end of
+;; the board is worth nothing.
 
+;; Red scores are multiplied by how defensive the computer is. A more defensive A.I. is more worried about 
+;; stopping red than winning.
+;; Black scores are made negative, and multiplied by how aggresive the computer is
+;; Good values for HOW-AGGRESIVE and HOW-DEFENSIVE are 1 and 1.5, respctively
+(check-expect (evaluation-function start-state) 0)
+(check-expect (evaluation-function test-state) (- (* HOW-DEFENSIVE (+ (* 3 3) (* 5 1))) ;; this is red's score, multiplied by how defensive the computer is. More defensive is more worried about stopping red from getting points                         
+                                                  (* HOW-AGGRESIVE (+ (* 4 2) (* 3 3))))) ;; blacks score, multiplied by how offensive the computer plays
 (define (evaluation-function state)
   (local
-    [(define (eval-coor c)  ;; coor -> number
+    [
+     ;; coor -> number
+     ;; evaluates and scores a single coordinate on the board
+     (define (eval-coor c)
        (local
          [(define checker (get-checker c state))
           (define (eval-direction c2 x y maximum) ;; evaluates the score of this coordinate, reletive to the focal coordinate
@@ -82,19 +76,23 @@
                 (local
                   [(define other-checker (get-checker c2 state))]
                   (cond
-                    ; I didn't want to make a new structure, so i committed original sin and made a multi-type list.
-                    ; May god have mercy on my soul
-                    ; the first element of the list is number of checkers in a row, the second is a boolean that is true if the first non-ally square is empty
+                    ; i made a multi-type list here
+                    ; the first element of the list is number of checkers in a row
+                    ; the second is a boolean that is true if the first non-ally square is empty
+                    ; empty squares are worth more
                     [(= other-checker BLANK) (list maximum true)]
                     [(= checker other-checker)
                      (eval-direction (next-coor c2 x y) x y (add1 maximum))]
                     [else (list maximum false)]))))
           
+          ;; coor number number -> coor
           ;; makes a new coor by incrementing the given coordinate by the given x and y values
           (define (next-coor c1 x y)
             (make-coor (+ (coor-x c1) x) (+ (coor-y c1) y)))
           
-          ;; changes one direction two directions, on either side of the checker, moves up the ladder
+          ;; number number -> number
+          ;; changes one direction two directions, one on either side of the checker, moves up the ladder
+          ;; evaluates both directions, and passes the combined results to the score function
           (define (eval-dir-helper x y) 
             (local
               [(define one-dir (eval-direction (next-coor c x y) x y 0))
@@ -114,14 +112,14 @@
           ;; maximum is the number of checkers in that row.
           ;; The two booleans reflect if the endpoints of the line are empty spaces (true) or unavailable (false)
           (define (score maximum one-side-empty? other-side-empty?)
-            (cond 
+            (cond
+              [(>= maximum 4) 99999] ; this part shouldn't be necesary, because the minimax should short circuit in the event of a win, but it doesn't work w/o it
               [(and one-side-empty? other-side-empty?) (* 2 maximum)]
               [(or one-side-empty? other-side-empty?) maximum]
               [else 0]))]
          
          (if (= checker BLANK) 0
-             (* (foldr + 0 (map dir-to-xy (list 0 1 2 3))) (if (= checker RED) 1 -1)))))
-     
+             (* (foldr + 0 (map dir-to-xy (list 0 1 2 3))) (if (= checker RED) HOW-DEFENSIVE (- HOW-AGGRESIVE))))))
      ;; generates a list of all valid coordinates on the board
      (define (get-all-coor x y)
        (cond
@@ -132,62 +130,73 @@
 
 
 ;; state --> state
-;; you will implement this function to make a move
+;; makes the best move available, using minimax with a depth of MINIMAX-DEPTH
+(define MINIMAX-DEPTH 2)
 (check-expect (computer-moves test-state)  ;; tests to see if the computer will block a red victory
               (make-world-state
                (list
-                (list 0 0 0 0 0 0 0 0 0) 
-                (list 0 0 0 0 0 0 0 0 0) 
-                (list 0 0 0 0 0 0 0 0 0) 
-                (list 0 0 0 0 0 0 2 1 2)
-                (list 0 0 0 0 0 0 0 2 1)
-                (list 0 0 0 0 0 0 0 0 1)
-                (list 0 0 0 0 0 0 0 0 1)
-                (list 0 0 0 0 0 0 0 0 2))
+                (list 0 0 0 0 0 0)
+                (list 0 0 0 0 0 2)
+                (list 0 0 0 0 2 1)
+                (list 0 0 0 0 0 1)
+                (list 0 0 0 0 2 1)
+                (list 0 0 0 0 0 2) ;<- should play in this square to block a red victory
+                (list 0 0 0 0 0 0))
                RED
                5 empty))
 
 (check-expect (computer-moves  ;; tests to see if the computer will take a victory over blocking red.
                (make-world-state
                 (list
-                 (list 0 0 0 0 0 0 0 0 2)
-                 (list 0 0 0 0 0 0 0 0 2)
-                 (list 0 0 0 0 0 0 0 0 2) 
-                 (list 0 0 0 0 0 0 0 0 0)  ; <- this is the winning move
-                 (list 0 0 0 0 0 0 0 0 0)  ; <- this is the blocking move
-                 (list 0 0 0 0 0 0 0 0 1)
-                 (list 0 0 0 0 0 0 0 0 1)
-                 (list 0 0 0 0 0 0 0 1 1))
+                 (list 0 0 0 0 0 2)
+                 (list 0 0 0 0 0 2) 
+                 (list 0 0 0 0 0 2)  
+                 (list 0 0 0 0 0 0) ; <- this is the winning move
+                 (list 0 0 0 0 0 0)
+                 (list 0 0 0 0 0 0)
+                 (list 0 0 0 1 1 1)) ; <- if the computer plays in this column, it is not taking the win it is given
                 BLACK
                 5 empty))
               (make-world-state
                (list
-                (list 0 0 0 0 0 0 0 0 2)
-                (list 0 0 0 0 0 0 0 0 2)
-                (list 0 0 0 0 0 0 0 0 2) 
-                (list 0 0 0 0 0 0 0 0 2)
-                (list 0 0 0 0 0 0 0 0 0)
-                (list 0 0 0 0 0 0 0 0 1)
-                (list 0 0 0 0 0 0 0 0 1)
-                (list 0 0 0 0 0 0 0 1 1))
+                (list 0 0 0 0 0 2)
+                (list 0 0 0 0 0 2)
+                (list 0 0 0 0 0 2) 
+                (list 0 0 0 0 0 2)
+                (list 0 0 0 0 0 0)
+                (list 0 0 0 0 0 0)
+                (list 0 0 0 1 1 1))
                RED
-               5 empty)) 
-
-
+               5 empty))
 
 (define (computer-moves state)
-  (make-move state (find-best (legal-next-moves state) MINIMAX-DEPTH false state)))
+  (make-move state (find-best (legal-next-moves state) MINIMAX-DEPTH false state))) ; <- if the boolean is changed to a true, the computer will want red to win, this is useful for A.I showdowns
 
-(define (eval-move move depth max? state)      ;; move -> score
+;; move, natural, boolean, world-state -> score
+;; Returns the score of the given move
+;; if depth = 0, makes the move on state and uses evaluation-function on the new board
+;; otherwise, calls find-best with legal-next-moves, and evals that
+;; when it calls find-best, it subtracts one from the remaining depth, and is now looking for the other min/max function
+;; i.e. if the previous move wanted the lowest value, the call to best-move will return the highest and vice versa
+;; check-win? should short-circuit it if true and return a very high value
+;; boolean is used because it is necassary when we pass it back to find-best
+
+(check-expect (eval-move (list 5 5) 0 false bd1) -99999) ;; checking short-circuit
+(define (eval-move move depth max? state)
   (local
     [(define next-state (make-move state move))]
-    (if (or (= 0 depth) (check-win? next-state))  ; if we have reached the depth, it returns the value at the bottom of the tree
-        (evaluation-function next-state)          ; if the last move ended the game, we don't need to look farther, because the game ends
-        (evaluation-function (make-move next-state (find-best (legal-next-moves next-state) (sub1 depth) (not max?) next-state)))))) 
+    (cond 
+      [(check-win? next-state) (if (= (world-state-whose-turn state) RED) 99999 -99999)] ; if this move ends the game, we don't need to look any deeper
+      [(= 0 depth) (evaluation-function next-state)] ; if we have reached the depth, it returns the value at the bottom of the tree
+      [else (evaluation-function (make-move next-state (find-best (legal-next-moves next-state) (sub1 depth) (not max?) next-state)))])))
         ; if we aren't there yet, evaluate the result of the find-best function
 
-;; lom -> move
+;; listOfMove, natural, boolean, world-state -> move
 ;; takes the best move of the list
+;; if max? is true, will take the highest valued move
+;; if max? is false, will take the lowest valued move
+;; because of the way it recurses through the two functions, should alternate min and max
+;; evaluation is done with eval-move, only the ends of the tree (where depth = 0) are evaled
 (define (find-best lom depth max? state)
   (cond
     [(empty? (rest lom)) (first lom)]
@@ -201,10 +210,6 @@
          [(and (not max?) (< this-move-score rbest-score)) (first lom)]
          [else rbest]))]))
 
-
-
-;; you must implement the above two functions as part of the asignment, but may create additional
-;; helper functions
 
 ;; ===========================================
 ;; you should not modify code below this point
@@ -237,6 +242,9 @@
                (nth-helper n (+ 1 current) (rest alist))]))]
     (nth-helper n 0 alist)))
 
+
+;; NOTE TO PROFESSOR BECK
+;; I tweaked this a little bit to make the end of the game prettier
 (define (main state)
   (local 
     [(define board 
@@ -265,19 +273,8 @@
            [(and (string=? mouse-event "button-down")
                  (member move (legal-next-moves state)))
             (if (check-win? next-state)  
-                (cond
-                  [(= (world-state-whose-turn state) RED)
-                   "RED WINS"]
-                  [(= (world-state-whose-turn state) BLACK)
-                   "BLACK WINS"])
-                (local [(define result (computer-moves next-state))]
-                  (if (check-win? result)
-                      (cond
-                        [(= (world-state-whose-turn next-state) RED)
-                         "RED WINS"]
-                        [(= (world-state-whose-turn next-state) BLACK)
-                         "BLACK WINS"])
-                      result)))]
+                next-state
+                (computer-moves next-state))]
            [else state])))
      (define (display-column2 column x-offset y-offset image)
        x-offset)
@@ -307,10 +304,18 @@
      (define (display-board position)
        (display-board-helper position OFFSET MTS))
      
+     (define (win-text turn)
+       (if (= turn BLACK)
+           "RED WINS"
+           "BLACK WINS"))
+     
      (define (render state)
-       (if (string? state)
-           (text state 40 'black)
-           (display-board (world-state-position state))))
+       (local
+         [(define backround (display-board (world-state-position state)))]
+         (if (check-win? state)
+             (overlay (text (win-text (world-state-whose-turn state)) 35 'black) backround)
+             backround)))
+          
      
      (define (map-coordinate lower upper click pos)
        (cond
@@ -325,7 +330,7 @@
     
     (big-bang state 
               (on-mouse place-checker)
-              (stop-when string?)
+              (stop-when check-win?)
               (to-draw render))))
 
 ;; *** this function permits you to make both legal and illegal moves
@@ -468,16 +473,30 @@
 (define test-state
   (make-world-state
    (list
-    (list 0 0 0 0 0 0 0 0 0)  ;; column 0
-    (list 0 0 0 0 0 0 0 0 0)  ;; column 1
-    (list 0 0 0 0 0 0 0 0 0)  ;; etc
-    (list 0 0 0 0 0 0 2 1 2)
-    (list 0 0 0 0 0 0 0 2 1)
-    (list 0 0 0 0 0 0 0 0 1)
-    (list 0 0 0 0 0 0 0 0 1)
-    (list 0 0 0 0 0 0 0 0 0))
+    (list 0 0 0 0 0 0)
+    (list 0 0 0 0 0 2)
+    (list 0 0 0 0 2 1)
+    (list 0 0 0 0 0 1)
+    (list 0 0 0 0 2 1)
+    (list 0 0 0 0 0 0)
+    (list 0 0 0 0 0 0))
+   BLACK
+   5 empty)) ;; score is (- (* 2 (+ (* 3 3) (* 5 1))) (+ (* 4 2) (* 3 3)) 
+
+(define bd1
+  (make-world-state
+   (list
+    (list 0 0 0 0 0 0)
+    (list 0 0 0 0 0 1)
+    (list 0 0 0 0 1 2)
+    (list 0 0 0 0 1 2)
+    (list 0 0 0 0 1 2)
+    (list 0 0 0 0 0 0)
+    (list 0 0 0 0 0 0))
    BLACK
    5 empty))
+
+(main start-state)
 
 
 
